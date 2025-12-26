@@ -1,0 +1,114 @@
+# Databricks notebook source
+from pyspark.sql.functions import col,when, timestamp_diff
+
+# COMMAND ----------
+
+#this notebook takes data from yellow trips raw table cleanse it and loades it into the yellow trips cleanse table in the silver layer
+
+# COMMAND ----------
+
+df = spark.read.table("nyctaxi.01_bronze.yellow_trips_raw")
+
+# COMMAND ----------
+
+#lets see if the above dataframe is working
+#display(df)
+
+# COMMAND ----------
+
+#we need to verify that we are not getting any pickup date outside of our data
+
+from pyspark.sql.functions import max, min
+
+df.agg(max("tpep_pickup_datetime"),min("tpep_pickup_datetime")).display()
+
+
+#here the maximum pickup time looks alright
+#but We also have 2008 which is strange
+#which is why we have the next code cell
+
+# COMMAND ----------
+
+#correct date range since we collecting June to December 2025
+#df= df.filter("tpep_pickup_datetime >= '2025-06-01' AND tpep_pickup_datetime< '2025-12-01'")
+
+#now we have correct date range
+
+
+df= df.filter("tpep_pickup_datetime >= '2025-05-01' AND tpep_pickup_datetime< '2025-11-01'")
+
+# we changed it again once we start incremental
+
+# COMMAND ----------
+
+#display(df)
+
+# COMMAND ----------
+
+#here, we are applying trasnformations via select method
+df = df.select(
+    when(col("VendorID") == 1,"Creative Mobile Technologies, LLC")
+        .when(col("VendorID") == 2,"Curb Mobility, LLC")
+        .when(col("VendorID") == 6,"Myle Technologies Inc")
+        .when(col("VendorID") == 7, "Helix")
+        .otherwise("Unknown")
+        .alias("vendor"),
+
+    "tpep_pickup_datetime",
+    "tpep_dropoff_datetime",
+    timestamp_diff('MINUTE',df.tpep_pickup_datetime, df.tpep_dropoff_datetime).alias("trip_duration"), #to get diff in minutes
+    "passenger_count",
+    "trip_distance",
+    
+    when(col("RatecodeID") == 1, "Standard Rate")
+        .when(col("RatecodeID") == 2, "JFK")
+        .when(col("RatecodeID") == 3, "Newark")
+        .when(col("RatecodeID") == 4, "Nassau or Westchester")
+        .when(col("RatecodeID") == 5, "Negotiated Fare")
+        .when(col("RatecodeID") == 6, "Group ride")
+        .otherwise("Unknown")
+        .alias("rate_type"),
+
+    "store_and_fwd_flag",
+    col("PULocationID").alias("pu_location_id"),
+    col("DOLocationID").alias("du_location_id"),
+
+    when(col("payment_type") == 0, "Flex Fare trip")
+    .when(col("payment_type") == 1, "Credit card")
+    .when(col("payment_type") == 2, "Cash")
+    .when(col("payment_type") == 3, "No charge")
+    .when(col("payment_type") == 4, "Dispute")
+    .when(col("payment_type") == 6, "Voided trip")
+    .otherwise("Unknown")
+    .alias("payment_type"),
+
+    "fare_amount",
+    "extra",
+    "mta_tax",
+    "tolls_amount",
+    "improvement_surcharge",
+    "total_amount",
+    "congestion_surcharge",
+    col("Airport_fee").alias("airport_fee"),
+    "cbd_congestion_fee",
+    "processed_timestamp"
+    )
+
+
+# COMMAND ----------
+
+#display(df)
+#we have proper naming convention
+
+# COMMAND ----------
+
+#saving file 
+#we will later make this incremental
+
+df.write.mode("overwrite").saveAsTable("nyctaxi.02_silver.yellow_trips_cleansed")
+
+# COMMAND ----------
+
+#lets check if the data exists
+
+#spark.read.table("nyctaxi.02_silver.yellow_trips_cleansed").display()
