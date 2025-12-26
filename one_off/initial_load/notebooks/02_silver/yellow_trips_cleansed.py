@@ -1,87 +1,61 @@
 # Databricks notebook source
-from pyspark.sql.functions import col,when, timestamp_diff
+from pyspark.sql.functions import col, when, timestamp_diff
 
 # COMMAND ----------
 
-#this notebook takes data from yellow trips raw table cleanse it and loades it into the yellow trips cleanse table in the silver layer
-
-# COMMAND ----------
-
+# Read raw trip data from the bronze table
 df = spark.read.table("nyctaxi.01_bronze.yellow_trips_raw")
 
 # COMMAND ----------
 
-#lets see if the above dataframe is working
-#display(df)
+# Filter trips to ensure they align with the date range for the parquet files
+# In this example I expect the tpep_pickup_datetime to be within January 2025 and June 2025 as these are the parquet files I initially loaded
+df = df.filter("tpep_pickup_datetime >= '2024-12-01' AND tpep_pickup_datetime < '2025-06-01'")
 
 # COMMAND ----------
 
-#we need to verify that we are not getting any pickup date outside of our data
-
-from pyspark.sql.functions import max, min
-
-df.agg(max("tpep_pickup_datetime"),min("tpep_pickup_datetime")).display()
-
-
-#here the maximum pickup time looks alright
-#but We also have 2008 which is strange
-#which is why we have the next code cell
-
-# COMMAND ----------
-
-#correct date range since we collecting June to December 2025
-#df= df.filter("tpep_pickup_datetime >= '2025-06-01' AND tpep_pickup_datetime< '2025-12-01'")
-
-#now we have correct date range
-
-
-df= df.filter("tpep_pickup_datetime >= '2025-05-01' AND tpep_pickup_datetime< '2025-11-01'")
-
-# we changed it again once we start incremental
-
-# COMMAND ----------
-
-#display(df)
-
-# COMMAND ----------
-
-#here, we are applying trasnformations via select method
+# Select and transform fields, decoding codes and computing duration
 df = df.select(
-    when(col("VendorID") == 1,"Creative Mobile Technologies, LLC")
-        .when(col("VendorID") == 2,"Curb Mobility, LLC")
-        .when(col("VendorID") == 6,"Myle Technologies Inc")
-        .when(col("VendorID") == 7, "Helix")
-        .otherwise("Unknown")
-        .alias("vendor"),
-
+    # Map numeric VendorID to vendor names
+    when(col("VendorID") == 1, "Creative Mobile Technologies, LLC")
+      .when(col("VendorID") == 2, "Curb Mobility, LLC")
+      .when(col("VendorID") == 6, "Myle Technologies Inc")
+      .when(col("VendorID") == 7, "Helix")
+      .otherwise("Unknown")
+      .alias("vendor"),
+    
     "tpep_pickup_datetime",
     "tpep_dropoff_datetime",
-    timestamp_diff('MINUTE',df.tpep_pickup_datetime, df.tpep_dropoff_datetime).alias("trip_duration"), #to get diff in minutes
+    # Calculate trip duration in minutes
+    timestamp_diff('MINUTE', df.tpep_pickup_datetime, df.tpep_dropoff_datetime).alias("trip_duration"),
     "passenger_count",
     "trip_distance",
-    
+
+    # Decode rate codes into readable rate types
     when(col("RatecodeID") == 1, "Standard Rate")
-        .when(col("RatecodeID") == 2, "JFK")
-        .when(col("RatecodeID") == 3, "Newark")
-        .when(col("RatecodeID") == 4, "Nassau or Westchester")
-        .when(col("RatecodeID") == 5, "Negotiated Fare")
-        .when(col("RatecodeID") == 6, "Group ride")
-        .otherwise("Unknown")
-        .alias("rate_type"),
-
+      .when(col("RatecodeID") == 2, "JFK")
+      .when(col("RatecodeID") == 3, "Newark")
+      .when(col("RatecodeID") == 4, "Nassau or Westchester")
+      .when(col("RatecodeID") == 5, "Negotiated Fare")
+      .when(col("RatecodeID") == 6, "Group Ride")
+      .otherwise("Unknown")
+      .alias("rate_type"),
+    
     "store_and_fwd_flag",
+    # alias columns for consistent naming convention
     col("PULocationID").alias("pu_location_id"),
-    col("DOLocationID").alias("du_location_id"),
-
+    col("DOLocationID").alias("do_location_id"),
+    
+    # Decode payment types
     when(col("payment_type") == 0, "Flex Fare trip")
-    .when(col("payment_type") == 1, "Credit card")
-    .when(col("payment_type") == 2, "Cash")
-    .when(col("payment_type") == 3, "No charge")
-    .when(col("payment_type") == 4, "Dispute")
-    .when(col("payment_type") == 6, "Voided trip")
-    .otherwise("Unknown")
-    .alias("payment_type"),
-
+      .when(col("payment_type") == 1, "Credit card")
+      .when(col("payment_type") == 2, "Cash")
+      .when(col("payment_type") == 3, "No charge")
+      .when(col("payment_type") == 4, "Dispute")
+      .when(col("payment_type") == 6, "Voided trip")
+      .otherwise("Unknown")
+      .alias("payment_type"),
+    
     "fare_amount",
     "extra",
     "mta_tax",
@@ -89,26 +63,13 @@ df = df.select(
     "improvement_surcharge",
     "total_amount",
     "congestion_surcharge",
+    # alias columns for consistent naming convention
     col("Airport_fee").alias("airport_fee"),
     "cbd_congestion_fee",
     "processed_timestamp"
-    )
-
-
-# COMMAND ----------
-
-#display(df)
-#we have proper naming convention
+)
 
 # COMMAND ----------
 
-#saving file 
-#we will later make this incremental
-
+# Write cleansed data to a Unity Catalog managed Delta table in the silver schema, overwriting existing data
 df.write.mode("overwrite").saveAsTable("nyctaxi.02_silver.yellow_trips_cleansed")
-
-# COMMAND ----------
-
-#lets check if the data exists
-
-#spark.read.table("nyctaxi.02_silver.yellow_trips_cleansed").display()

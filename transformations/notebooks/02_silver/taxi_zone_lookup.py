@@ -1,56 +1,7 @@
 # Databricks notebook source
-#from pyspark.sql.functions import current_timestamp, lit, col
-#from pyspark.sql.types import TimestampType, IntegerType
-
-
-# COMMAND ----------
-
-#df = spark.read.format("csv").option("header", "true").load("/Volumes/nyctaxi/00_landing/data_sources/lookup/taxi_zone_lookup.csv")
-
-# COMMAND ----------
-
-#display(df)
-#notice all columns are string types its because csv stores as string also the column naming conventions are off
-
-# COMMAND ----------
-
-# df = df.select(
-#                 col("LocationID").cast(IntegerType()).alias("location_id"),
-#                 col("Borough").alias("borough"),
-#                 col("Zone").alias("zone"),
-#                 col("service_zone"),
-#                 current_timestamp().alias("effective_date"),
-#                 lit(None).cast(TimestampType()).alias("end_date")
-# )
-
-#end date column contains null value thru the lit function
-#
-
-# COMMAND ----------
-
-#display(df)
-#the records with null values in the end date
-#indicate they are active records
-#later when implement slowly changing dimensions type 2
-#we will make the row inactive by giving it an end date
-
-# COMMAND ----------
-
-# df.write.mode("overwrite").saveAsTable("nyctaxi.02_silver.taxi_zone_lookup")
-
-#we will later change the overwrite to 
-
-# COMMAND ----------
-
-#spark.read.table("nyctaxi.02_silver.taxi_zone_lookup").display()
-
-# COMMAND ----------
-
-# Databricks notebook source
-
 from datetime import datetime
 from delta.tables import DeltaTable
-from pyspark.sql.functions import col, lit, current_timestamp
+from pyspark.sql.functions import lit, current_timestamp, col
 from pyspark.sql.types import TimestampType, IntegerType, StringType
 
 # COMMAND ----------
@@ -71,31 +22,6 @@ df = df.select(
             )
 
 # COMMAND ----------
-
-# COMMAND ----------
-
-# This logic has been included to force updates and insertions to the source taxi zone lookup data for demonstration purposes only
-# THIS SHOULD NOT BE INCLUDED IN THE FINAL PROJECT CODE
-
-#from pyspark.sql.functions import *
-
-# Insert new record to the source DataFrame
-# df_new = spark.createDataFrame(
-#     [(999, "New Borough", "New Zone", "New Service Zone")],
-#     schema="location_id int, borough string, zone string, service_zone string"
-# ).withColumn("effective_date", current_timestamp()) \
-#  .withColumn("end_date", lit(None).cast("timestamp"))
-
-# df = df_new.union(df)
-
-# # Updating record for location_id 1
-# df = df.withColumn("borough", when(col("location_id")==1, "NEWARK AIRPORT").otherwise(col("borough")))
-
-# COMMAND ----------
-
-# COMMAND ----------
-
-
 
 # Fixed point-in-time used to "close" any changed active records
 # Using a Python timestamp ensures the exact same value is written and can be referenced if needed
@@ -121,8 +47,6 @@ dt.alias("t").\
         set = { "t.end_date": lit(end_timestamp).cast(TimestampType()) }
     ).\
     execute()
-
-# COMMAND ----------
 
 # COMMAND ----------
 
@@ -155,8 +79,6 @@ else:
                     "t.end_date": lit(None).cast(TimestampType()) }
         ).\
         execute()
-
-# COMMAND ----------
 
 # COMMAND ----------
 
