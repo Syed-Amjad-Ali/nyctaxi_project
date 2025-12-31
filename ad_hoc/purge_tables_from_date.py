@@ -1,6 +1,6 @@
 # Databricks notebook source
 # Update this so that the date is the start of the month that was 2 months prior to the current date
-date_from = '2025-10-01'
+date_from = '2025-09-01'
 
 # COMMAND ----------
 
